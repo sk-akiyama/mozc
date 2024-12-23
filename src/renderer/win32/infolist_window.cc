@@ -59,7 +59,9 @@ using mozc::commands::SessionCommand;
 using mozc::renderer::RendererStyle;
 
 namespace {
-const COLORREF kDefaultBackgroundColor = RGB(0xff, 0xff, 0xff);
+// ksk これなんだろう
+// const COLORREF kDefaultBackgroundColor = RGB(0xff, 0xff, 0xff);
+const COLORREF kDefaultBackgroundColor = RGB(0x0f, 0x0f, 0x0f);
 const UINT_PTR kIdDelayShowHideTimer = 100;
 
 bool SendUsageStatsEvent(client::SendCommandInterface *command_sender,

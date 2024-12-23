@@ -123,6 +123,7 @@ mozc_cc_library(
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
     ],
 )
 
@@ -241,7 +242,10 @@ mozc_py_binary(
 mozc_cc_library(
     name = "pos_group",
     hdrs = ["pos_group.h"],
-    deps = ["@com_google_absl//absl/base:core_headers"],
+    deps = [
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/types:span",
+    ],
 )
 
 mozc_py_binary(
@@ -336,6 +340,7 @@ mozc_cc_test(
         "//testing:mozctest",
         "//testing:testing_util",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
     ],
 )
 
@@ -479,6 +484,7 @@ mozc_cc_library(
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
     ],
 )
 
@@ -497,6 +503,7 @@ mozc_cc_test(
         "//data_manager/testing:mock_data_manager",
         "//testing:gunit_main",
         "//testing:mozctest",
+        "@com_google_absl//absl/types:span",
     ],
 )
 
@@ -574,7 +581,10 @@ mozc_cc_library(
     visibility = [
         "//:__subpackages__",
     ],
-    deps = ["@com_google_absl//absl/base:core_headers"],
+    deps = [
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/types:span",
+    ],
 )
 
 mozc_py_binary(
@@ -661,6 +671,7 @@ mozc_cc_test(
         "//request:conversion_request",
         "//testing:gunit_main",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
     ],
 )
 
@@ -677,6 +688,7 @@ mozc_cc_library(
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/types:span",
     ],
 )
 

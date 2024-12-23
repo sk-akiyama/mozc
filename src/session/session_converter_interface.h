@@ -33,12 +33,11 @@
 #define MOZC_SESSION_SESSION_CONVERTER_INTERFACE_H_
 
 #include <cstddef>
+#include <optional>
 #include <string>
 
 #include "absl/strings/string_view.h"
 #include "composer/composer.h"
-#include "converter/converter_interface.h"
-#include "converter/segments.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "transliteration/transliteration.h"
@@ -47,7 +46,6 @@ namespace mozc {
 namespace session {
 
 struct ConversionPreferences {
-  int max_history_size;
   bool use_history;
 
   // This is a flag to check if the converter should return the suggestion
@@ -93,13 +91,6 @@ class SessionConverterInterface {
   // Return the default conversion preferences to be used for custom
   // conversion.
   virtual const ConversionPreferences &conversion_preferences() const = 0;
-
-  // Gets the selected candidate. If no candidate is selected, returns NULL.
-  virtual const Segment::Candidate *GetSelectedCandidateOfFocusedSegment()
-      const = 0;
-
-  // Gets the candidate specified by id. If id is invalid, nullptr is returned.
-  virtual const Segment::Candidate *GetCandidateById(int id) const = 0;
 
   // Send a conversion request to the converter.
   virtual bool Convert(const composer::Composer &composer) = 0;
@@ -185,6 +176,11 @@ class SessionConverterInterface {
 
   // Revert the last "Commit" operation
   virtual void Revert() = 0;
+
+  // Delete candidate from user input history.
+  // Try to delete the current selected candidate if |id| is not specified.
+  // Returns false if the candidate was not found or deletion failed.
+  virtual bool DeleteCandidateFromHistory(std::optional<int> id) = 0;
 
   // Move the focus of segments.
   virtual void SegmentFocusRight() = 0;

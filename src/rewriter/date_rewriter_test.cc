@@ -47,7 +47,7 @@
 #include "dictionary/dictionary_interface.h"
 #include "dictionary/dictionary_mock.h"
 #include "dictionary/dictionary_token.h"
-#include "engine/engine_interface.h"
+#include "engine/engine.h"
 #include "engine/mock_data_engine_factory.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
@@ -64,7 +64,6 @@ using ::mozc::dictionary::DictionaryInterface;
 using ::mozc::dictionary::MockDictionary;
 using ::mozc::dictionary::Token;
 using ::testing::_;
-using ::testing::Each;
 using ::testing::ElementsAre;
 using ::testing::Field;
 using ::testing::Matcher;
@@ -115,14 +114,18 @@ Matcher<const Segment::Candidate *> ValueAndDescAre(absl::string_view value,
 
 // An action that invokes a DictionaryInterface::Callback with the token whose
 // value is set to the given one.
-ACTION_P(InvokeCallbackWithUserDictionaryToken, value) {
-  const absl::string_view key = arg0;
-  DictionaryInterface::Callback *const callback = arg2;
-  const Token token(key, value, MockDictionary::kDefaultCost,
-                    MockDictionary::kDefaultPosId,
-                    MockDictionary::kDefaultPosId, Token::USER_DICTIONARY);
-  callback->OnToken(key, key, token);
-}
+struct InvokeCallbackWithUserDictionaryToken {
+  template <class T>
+  void operator()(absl::string_view key, T,
+                  DictionaryInterface::Callback *callback) {
+    const Token token(key, value, MockDictionary::kDefaultCost,
+                      MockDictionary::kDefaultPosId,
+                      MockDictionary::kDefaultPosId, Token::USER_DICTIONARY);
+    callback->OnToken(key, key, token);
+  }
+
+  std::string value;
+};
 
 }  // namespace
 
@@ -385,97 +388,89 @@ TEST_F(DateRewriterTest, ADToERA) {
   EXPECT_TRUE(DateRewriter::AdToEra(-100, 1).empty());
 }
 
-TEST_F(DateRewriterTest, ERAToAD) {
-#define PAIR_STR(a, b) std::make_pair(std::string(a), std::string(b))
+struct EraToAdTestData {
+  std::string key;
+  std::vector<std::pair<std::string, std::string>> results;
 
+  EraToAdTestData WithSuffix() const {
+    EraToAdTestData with_suffix;
+    with_suffix.key = key + "ねん";
+    for (const auto &result : results) {
+      with_suffix.results.push_back(
+          std::make_pair(result.first + "年", result.second + "年"));
+    }
+    return with_suffix;
+  }
+} era_to_ad_test_data[] = {
+    {"たいか1", {{"六四五", "大化1"}, {"６４５", "大化1"}, {"645", "大化1"}}},
+    {"たいか2", {{"六四六", "大化2"}, {"６４６", "大化2"}, {"646", "大化2"}}},
+    // "しょうわ2ねん" is AD.1313 or AD.1927.
+    {"しょうわ2",
+     {{"一三一三", "正和2"},
+      {"１３１３", "正和2"},
+      {"1313", "正和2"},
+      {"一九二七", "昭和2"},
+      {"１９２７", "昭和2"},
+      {"1927", "昭和2"}}},
+    // North court tests.
+    {"げんとく1",
+     {{"一三二九", "元徳1"}, {"１３２９", "元徳1"}, {"1329", "元徳1"}}},
+    {"めいとく3",
+     {{"一三九二", "明徳3"}, {"１３９２", "明徳3"}, {"1392", "明徳3"}}},
+    {"けんむ1",
+     {{"一三三四", "建武1"}, {"１３３４", "建武1"}, {"1334", "建武1"}}},
+    // Big number tests.
+    {"しょうわ80",
+     {{"一三九一", "正和80"},
+      {"１３９１", "正和80"},
+      {"1391", "正和80"},
+      {"二〇〇五", "昭和80"},
+      {"２００５", "昭和80"},
+      {"2005", "昭和80"}}},
+    {"たいしょう101",
+     {{"二〇一二", "大正101"}, {"２０１２", "大正101"}, {"2012", "大正101"}}},
+    // "元年" test.
+    {"れいわがん",
+     {{"二〇一九", "令和元"}, {"２０１９", "令和元"}, {"2019", "令和元"}}},
+    {"へいせいがん",
+     {{"一九八九", "平成元"}, {"１９８９", "平成元"}, {"1989", "平成元"}}},
+    // "しょうわがんねん" is AD.1926 or AD.1312.
+    {"しょうわがん",
+     {{"一三一二", "正和元"},
+      {"１３１２", "正和元"},
+      {"1312", "正和元"},
+      {"一九二六", "昭和元"},
+      {"１９２６", "昭和元"},
+      {"1926", "昭和元"}}},
+};
+
+class EraToAdTest : public ::testing::TestWithParam<EraToAdTestData> {};
+INSTANTIATE_TEST_SUITE_P(DateRewriterTest, EraToAdTest,
+                         ::testing::ValuesIn(era_to_ad_test_data));
+
+TEST_P(EraToAdTest, WithSuffix) {
+  const auto data = GetParam().WithSuffix();
+  EXPECT_EQ(DateRewriter::EraToAd(data.key), data.results);
+}
+
+TEST_P(EraToAdTest, WithoutSuffix) {
+  const auto &data = GetParam();
+  EXPECT_EQ(DateRewriter::EraToAd(data.key), data.results);
+}
+
+TEST_F(DateRewriterTest, EraToAdEmpty) {
   EXPECT_TRUE(DateRewriter::EraToAd("").empty());
+}
 
-  // "たいか1ねん" is "645年" or "６４５年" or "六四五年"
-  EXPECT_THAT(DateRewriter::EraToAd("たいか1ねん"),
-              ElementsAre(PAIR_STR("六四五年", "大化1年"),
-                          PAIR_STR("６４５年", "大化1年"),
-                          PAIR_STR("645年", "大化1年")));
-
-  // "たいか2ねん" is "646年" or "６４６年" or "六四六年"
-  EXPECT_THAT(DateRewriter::EraToAd("たいか2ねん"),
-              ElementsAre(PAIR_STR("六四六年", "大化2年"),
-                          PAIR_STR("６４６年", "大化2年"),
-                          PAIR_STR("646年", "大化2年")));
-
-  // "しょうわ2ねん" is AD.1313 or AD.1927
-  // "1313年", "１３１３年", "一三一三年"
-  // "1927年", "１９２７年", "一九二七年"
-  EXPECT_THAT(
-      DateRewriter::EraToAd("しょうわ2ねん"),
-      ElementsAre(
-          PAIR_STR("一三一三年", "正和2年"), PAIR_STR("１３１３年", "正和2年"),
-          PAIR_STR("1313年", "正和2年"), PAIR_STR("一九二七年", "昭和2年"),
-          PAIR_STR("１９２７年", "昭和2年"), PAIR_STR("1927年", "昭和2年")));
-
-  // North court test
-  // "げんとく1ねん" is AD.1329
-  EXPECT_THAT(DateRewriter::EraToAd("げんとく1ねん"),
-              ElementsAre(PAIR_STR("一三二九年", "元徳1年"),
-                          PAIR_STR("１３２９年", "元徳1年"),
-                          PAIR_STR("1329年", "元徳1年")));
-
-  // "めいとく3ねん" is AD.1392
-  EXPECT_THAT(DateRewriter::EraToAd("めいとく3ねん"),
-              ElementsAre(PAIR_STR("一三九二年", "明徳3年"),
-                          PAIR_STR("１３９２年", "明徳3年"),
-                          PAIR_STR("1392年", "明徳3年")));
-
-  // "けんむ1ねん" is AD.1334 (requires dedupe)
-  EXPECT_THAT(DateRewriter::EraToAd("けんむ1ねん"),
-              ElementsAre(PAIR_STR("一三三四年", "建武1年"),
-                          PAIR_STR("１３３４年", "建武1年"),
-                          PAIR_STR("1334年", "建武1年")));
-
-  // Big number test
-  // "昭和80年" is AD.2005
-  EXPECT_THAT(DateRewriter::EraToAd("しょうわ80ねん"),
-              ElementsAre(PAIR_STR("一三九一年", "正和80年"),
-                          PAIR_STR("１３９１年", "正和80年"),
-                          PAIR_STR("1391年", "正和80年"),
-                          PAIR_STR("二〇〇五年", "昭和80年"),
-                          PAIR_STR("２００５年", "昭和80年"),
-                          PAIR_STR("2005年", "昭和80年")));
-
-  // "大正101年" is AD.2012
-  EXPECT_THAT(DateRewriter::EraToAd("たいしょう101ねん"),
-              ElementsAre(PAIR_STR("二〇一二年", "大正101年"),
-                          PAIR_STR("２０１２年", "大正101年"),
-                          PAIR_STR("2012年", "大正101年")));
-
-  // "元年" test
-  // "れいわがんねん" is AD.2019
-  EXPECT_THAT(DateRewriter::EraToAd("れいわがんねん"),
-              ElementsAre(PAIR_STR("二〇一九年", "令和元年"),
-                          PAIR_STR("２０１９年", "令和元年"),
-                          PAIR_STR("2019年", "令和元年")));
-
-  // "元年" test
-  // "へいせいがんねん" is AD.1989
-  EXPECT_THAT(DateRewriter::EraToAd("へいせいがんねん"),
-              ElementsAre(PAIR_STR("一九八九年", "平成元年"),
-                          PAIR_STR("１９８９年", "平成元年"),
-                          PAIR_STR("1989年", "平成元年")));
-
-  // "しょうわがんねん" is AD.1926 or AD.1312
-  EXPECT_THAT(DateRewriter::EraToAd("しょうわがんねん"),
-              ElementsAre(PAIR_STR("一三一二年", "正和元年"),
-                          PAIR_STR("１３１２年", "正和元年"),
-                          PAIR_STR("1312年", "正和元年"),
-                          PAIR_STR("一九二六年", "昭和元年"),
-                          PAIR_STR("１９２６年", "昭和元年"),
-                          PAIR_STR("1926年", "昭和元年")));
-
-  // Negative Test
-  // 0 or negative number input are expected false return
+// Negative Tests.
+// 0 or negative number input are expected false return.
+TEST_F(DateRewriterTest, EraToAdNegative) {
   EXPECT_TRUE(DateRewriter::EraToAd("しょうわ-1ねん").empty());
+  EXPECT_TRUE(DateRewriter::EraToAd("しょうわ-1").empty());
   EXPECT_TRUE(DateRewriter::EraToAd("しょうわ0ねん").empty());
+  EXPECT_TRUE(DateRewriter::EraToAd("しょうわ0").empty());
   EXPECT_TRUE(DateRewriter::EraToAd("0ねん").empty());
-#undef PAIR_STR
+  EXPECT_TRUE(DateRewriter::EraToAd("0").empty());
 }
 
 TEST_F(DateRewriterTest, ConvertTime) {
@@ -560,7 +555,8 @@ TEST_F(DateRewriterTest, NumberRewriterTest) {
   const commands::Request request;
   const config::Config config;
   const composer::Composer composer(nullptr, &request, &config);
-  const ConversionRequest conversion_request(&composer, &request, &config);
+  const ConversionRequest conversion_request =
+      ConversionRequestBuilder().SetComposer(composer).Build();
 
   // Not targets of rewrite.
   const char *kNonTargetCases[] = {
@@ -575,40 +571,31 @@ TEST_F(DateRewriterTest, NumberRewriterTest) {
   }
 
 // Macro for {"M/D", "日付"}
-#define DATE(month, day) \
-  { #month "/" #day, "日付" }
+#define DATE(month, day) {#month "/" #day, "日付"}
 
 // Macro for {"M月D日", "日付"}
-#define KANJI_DATE(month, day) \
-  { #month "月" #day "日", "日付" }
+#define KANJI_DATE(month, day) {#month "月" #day "日", "日付"}
 
 // Macro for {"H:M", "時刻"}
-#define TIME(hour, minute) \
-  { #hour ":" #minute, "時刻" }
+#define TIME(hour, minute) {#hour ":" #minute, "時刻"}
 
 // Macro for {"H時M分", "時刻"}
-#define KANJI_TIME(hour, minute) \
-  { #hour "時" #minute "分", "時刻" }
+#define KANJI_TIME(hour, minute) {#hour "時" #minute "分", "時刻"}
 
 // Macro for {"H時半", "時刻"}
-#define KANJI_TIME_HAN(hour) \
-  { #hour "時半", "時刻" }
+#define KANJI_TIME_HAN(hour) {#hour "時半", "時刻"}
 
 // Macro for {"午前H時M分", "時刻"}
-#define GOZEN(hour, minute) \
-  { "午前" #hour "時" #minute "分", "時刻" }
+#define GOZEN(hour, minute) {"午前" #hour "時" #minute "分", "時刻"}
 
 // Macro for {"午後H時M分", "時刻"}
-#define GOGO(hour, minute) \
-  { "午後" #hour "時" #minute "分", "時刻" }
+#define GOGO(hour, minute) {"午後" #hour "時" #minute "分", "時刻"}
 
 // Macro for {"午前H時半", "時刻"}
-#define GOZEN_HAN(hour) \
-  { "午前" #hour "時半", "時刻" }
+#define GOZEN_HAN(hour) {"午前" #hour "時半", "時刻"}
 
 // Macro for {"午後H時半", "時刻"}
-#define GOGO_HAN(hour) \
-  { "午後" #hour "時半", "時刻" }
+#define GOGO_HAN(hour) {"午後" #hour "時半", "時刻"}
 
   // Targets of rewrite.
   using ValueAndDescription = std::pair<const char *, const char *>;
@@ -925,8 +912,6 @@ TEST_F(DateRewriterTest, NumberRewriterFromRawInputTest) {
   const commands::Request request;
   const config::Config config;
   composer::Composer composer(&table, &request, &config);
-  ConversionRequest conversion_request;
-  conversion_request.set_composer(&composer);
 
   // Key sequence : 2223
   // Preedit : cd
@@ -935,7 +920,10 @@ TEST_F(DateRewriterTest, NumberRewriterFromRawInputTest) {
     InitSegment("cd", "cd", &segments);
     composer.Reset();
     composer.InsertCharacter("2223");
-    EXPECT_TRUE(rewriter.Rewrite(conversion_request, &segments));
+    const ConversionRequest conv_request =
+        ConversionRequestBuilder().SetComposer(composer).Build();
+
+    EXPECT_TRUE(rewriter.Rewrite(conv_request, &segments));
     ASSERT_EQ(segments.segments_size(), 1);
     EXPECT_THAT(segments.segment(0), ContainsCandidate(ValueIs("22:23")));
   }
@@ -948,7 +936,9 @@ TEST_F(DateRewriterTest, NumberRewriterFromRawInputTest) {
     InitSegment("1111", "1111", &segments);
     composer.Reset();
     composer.InsertCharacter("2223");
-    EXPECT_TRUE(rewriter.Rewrite(conversion_request, &segments));
+    const ConversionRequest conv_request =
+        ConversionRequestBuilder().SetComposer(composer).Build();
+    EXPECT_TRUE(rewriter.Rewrite(conv_request, &segments));
     ASSERT_EQ(segments.segments_size(), 1);
     EXPECT_THAT(segments.segment(0), ContainsCandidate(ValueIs("11:11")));
     EXPECT_THAT(segments.segment(0), Not(ContainsCandidate(ValueIs("22:23"))));
@@ -965,7 +955,9 @@ TEST_F(DateRewriterTest, NumberRewriterFromRawInputTest) {
     meta_candidate->value = "1111";
     composer.InsertCharacter("2223");
     composer.Reset();
-    EXPECT_TRUE(rewriter.Rewrite(conversion_request, &segments));
+    const ConversionRequest conv_request =
+        ConversionRequestBuilder().SetComposer(composer).Build();
+    EXPECT_TRUE(rewriter.Rewrite(conv_request, &segments));
     ASSERT_EQ(segments.segments_size(), 1);
     EXPECT_THAT(segments.segment(0), ContainsCandidate(ValueIs("11:11")));
     EXPECT_THAT(segments.segment(0), Not(ContainsCandidate(ValueIs("22:23"))));
@@ -973,54 +965,28 @@ TEST_F(DateRewriterTest, NumberRewriterFromRawInputTest) {
 }
 
 TEST_F(DateRewriterTest, MobileEnvironmentTest) {
-  ConversionRequest convreq;
   commands::Request request;
-  convreq.set_request(&request);
   DateRewriter rewriter;
 
   {
     request.set_mixed_conversion(true);
+    const ConversionRequest convreq =
+        ConversionRequestBuilder().SetRequest(request).Build();
     EXPECT_EQ(rewriter.capability(convreq), RewriterInterface::ALL);
   }
 
   {
     request.set_mixed_conversion(false);
+    const ConversionRequest convreq =
+        ConversionRequestBuilder().SetRequest(request).Build();
     EXPECT_EQ(rewriter.capability(convreq), RewriterInterface::CONVERSION);
   }
-}
-
-TEST_F(DateRewriterTest, RewriteYearTest) {
-  DateRewriter rewriter;
-  Segments segments;
-  const ConversionRequest request;
-  InitSegment("2010", "2010", &segments);
-  AppendSegment("nenn", "年", &segments);
-  EXPECT_TRUE(rewriter.Rewrite(request, &segments));
-  ASSERT_EQ(segments.segments_size(), 2);
-  EXPECT_THAT(segments.segment(0), ContainsCandidate(ValueIs("平成22")));
-  EXPECT_THAT(segments.segment(1), HasSingleCandidate(ValueIs("年")));
-}
-
-// This test treats the situation that if UserHistoryRewriter or other like
-// Rewriter moves up a candidate which is actually a number but can not be
-// converted integer easily.
-TEST_F(DateRewriterTest, RelationWithUserHistoryRewriterTest) {
-  DateRewriter rewriter;
-  Segments segments;
-  const ConversionRequest request;
-  InitSegment("2011", "二千十一", &segments);
-  AppendSegment("nenn", "年", &segments);
-  EXPECT_TRUE(rewriter.Rewrite(request, &segments));
-  ASSERT_EQ(segments.segments_size(), 2);
-  EXPECT_THAT(segments.segment(0), ContainsCandidate(ValueIs("平成23")));
-  EXPECT_THAT(segments.segment(1), HasSingleCandidate(ValueIs("年")));
 }
 
 TEST_F(DateRewriterTest, ConsecutiveDigitsInsertPositionTest) {
   commands::Request request;
   const config::Config config;
   const composer::Composer composer(nullptr, &request, &config);
-  const ConversionRequest conversion_request(&composer, &request, &config);
 
   // Init an instance of Segments for this test.
   Segments test_segments;
@@ -1032,6 +998,10 @@ TEST_F(DateRewriterTest, ConsecutiveDigitsInsertPositionTest) {
   {
     request.set_special_romanji_table(
         commands::Request::QWERTY_MOBILE_TO_HALFWIDTHASCII);
+    const ConversionRequest conversion_request = ConversionRequestBuilder()
+                                                     .SetComposer(composer)
+                                                     .SetRequest(request)
+                                                     .Build();
 
     DateRewriter rewriter;
     Segments segments = test_segments;
@@ -1051,6 +1021,10 @@ TEST_F(DateRewriterTest, ConsecutiveDigitsInsertPositionTest) {
   {
     request.set_special_romanji_table(
         commands::Request::TOGGLE_FLICK_TO_HIRAGANA);
+    const ConversionRequest conversion_request = ConversionRequestBuilder()
+                                                     .SetComposer(composer)
+                                                     .SetRequest(request)
+                                                     .Build();
 
     DateRewriter rewriter;
     Segments segments = test_segments;
@@ -1070,7 +1044,8 @@ TEST_F(DateRewriterTest, ConsecutiveDigitsFromMetaCandidates) {
   commands::Request request;
   const config::Config config;
   const composer::Composer composer(nullptr, &request, &config);
-  const ConversionRequest conversion_request(&composer, &request, &config);
+  const ConversionRequest conversion_request =
+      ConversionRequestBuilder().SetComposer(composer).Build();
 
   Segments segments;
   InitSegment("nisen", "にせん", &segments);
@@ -1087,7 +1062,8 @@ TEST_F(DateRewriterTest, ConsecutiveDigitsWithMinusSign) {
   commands::Request request;
   const config::Config config;
   const composer::Composer composer(nullptr, &request, &config);
-  const ConversionRequest conversion_request(&composer, &request, &config);
+  const ConversionRequest conversion_request =
+      ConversionRequestBuilder().SetComposer(composer).Build();
 
   // Init an instance of Segments for this test.
   Segments segments;
@@ -1112,7 +1088,8 @@ TEST_F(DateRewriterTest, ConsecutiveDigitsInsertPositionWithHistory) {
   commands::Request request;
   const config::Config config;
   const composer::Composer composer(nullptr, &request, &config);
-  const ConversionRequest conversion_request(&composer, &request, &config);
+  const ConversionRequest conversion_request =
+      ConversionRequestBuilder().SetComposer(composer).Build();
 
   Segments segments;
 
@@ -1148,7 +1125,7 @@ TEST_F(DateRewriterTest, ExtraFormatTest) {
   MockDictionary dictionary;
   EXPECT_CALL(dictionary,
               LookupExact(StrEq(DateRewriter::kExtraFormatKey), _, _))
-      .WillOnce(InvokeCallbackWithUserDictionaryToken("{YEAR}{MONTH}{DATE}"));
+      .WillOnce(InvokeCallbackWithUserDictionaryToken{"{YEAR}{MONTH}{DATE}"});
 
   MockConverter converter;
   DateRewriter rewriter(&converter, &dictionary);
@@ -1183,7 +1160,7 @@ TEST_F(DateRewriterTest, ExtraFormatSyntaxTest) {
     MockDictionary dictionary;
     EXPECT_CALL(dictionary,
                 LookupExact(StrEq(DateRewriter::kExtraFormatKey), _, _))
-        .WillOnce(InvokeCallbackWithUserDictionaryToken(input));
+        .WillOnce(InvokeCallbackWithUserDictionaryToken{std::string(input)});
     MockConverter converter;
     DateRewriter rewriter(&converter, &dictionary);
     Segments segments;
@@ -1226,9 +1203,11 @@ INSTANTIATE_TEST_SUITE_P(
     Values(
         // One segment, the most basic case.
         RewriteAdData{{{"へいせい23ねん", "平成23年"}}, 0, "2011年"},
+        RewriteAdData{{{"2011ねん", "2011年"}}, 0, "平成23年"},
         // The `value` should be ignored when rewriting.
         RewriteAdData{{{"へいせい23ねん", "兵勢23年"}}, 0, "2011年"},
         RewriteAdData{{{"へいせい23ねん", "兵勢23念"}}, 0, "2011年"},
+        RewriteAdData{{{"2011ねん", "2011念"}}, 0, "平成23年"},
         // Invalid era name.
         RewriteAdData{{{"ああ23ねん", "ああ23年"}}, 0, ""},
         // One segment, with preceding and following segments.
@@ -1237,11 +1216,28 @@ INSTANTIATE_TEST_SUITE_P(
                        {"です", "です"}},
                       1,
                       "2011年"},
+        RewriteAdData{
+            {{"きょうは", "今日は"}, {"2011ねん", "2011年"}, {"です", "です"}},
+            1,
+            "平成23年"},
+        // The "年" suffix in the following segment. They don't need resizing,
+        // and the result shouldn't contain the "年" suffix.
+        RewriteAdData{{{"へいせい23", "平成23"}, {"ねん", "年"}}, 0, "2011"},
+        RewriteAdData{{{"2011", "2011"}, {"ねん", "年"}}, 0, "平成23"},
+        RewriteAdData{{{"2011", "二千十一"}, {"ねん", "年"}}, 0, "平成23"},
+        RewriteAdData{{{"きょうは", "今日は"},
+                       {"へいせい23", "平成23"},
+                       {"ねん", "年"},
+                       {"です", "です"}},
+                      1,
+                      "2011"},
+        RewriteAdData{{{"きょうは", "今日は"},
+                       {"2011", "2011"},
+                       {"ねん", "年"},
+                       {"です", "です"}},
+                      1,
+                      "平成23"},
         // Multiple segments.
-        RewriteAdData{{{"へいせい23", "平成23"}, {"ねん", "年"}},
-                      0,
-                      "",
-                      "へいせい23ねん"},
         RewriteAdData{{{"へいせい", "平成"}, {"23ねん", "23年"}},
                       0,
                       "",
@@ -1259,13 +1255,6 @@ INSTANTIATE_TEST_SUITE_P(
                       "",
                       "へいせい23ねん"},
         // Multiple segments with preceding and following segments.
-        RewriteAdData{{{"きょうは", "今日は"},
-                       {"へいせい23", "平成23"},
-                       {"ねん", "年"},
-                       {"です", "です"}},
-                      1,
-                      "",
-                      "へいせい23ねん"},
         RewriteAdData{{{"きょうは", "今日は"},
                        {"へいせい", "平成"},
                        {"23", "23"},
@@ -1324,8 +1313,7 @@ TEST_P(RewriteAdTest, MockConverter) {
 TEST_P(RewriteAdTest, MockDataManager) {
   const RewriteAdData &data = GetParam();
   MockDictionary dictionary;
-  std::unique_ptr<EngineInterface> engine =
-      MockDataEngineFactory::Create().value();
+  std::unique_ptr<Engine> engine = MockDataEngineFactory::Create().value();
   DateRewriter rewriter(engine->GetConverter(), &dictionary);
   Segments segments;
   for (const auto &[key, value] : data.segments) {
@@ -1354,14 +1342,15 @@ TEST_F(DateRewriterTest, RewriteAdResizedSegments) {
   MockConverter converter;
   DateRewriter rewriter(&converter, &dictionary);
   Segments segments;
-  InitSegment("へいせい23", "平成23", &segments);
+  InitSegment("へいせい", "平成", &segments);
+  AppendSegment("23", "23", &segments);
   AppendSegment("ねん", "年", &segments);
   const ConversionRequest request;
   segments.set_resized(true);
   EXPECT_FALSE(rewriter.Rewrite(request, &segments));
 
   segments.set_resized(false);
-  EXPECT_CALL(converter, ResizeSegment(&segments, Ref(request), 0, 2))
+  EXPECT_CALL(converter, ResizeSegment(&segments, Ref(request), 0, 4))
       .WillOnce(Return(true));
   EXPECT_TRUE(rewriter.Rewrite(request, &segments));
 }

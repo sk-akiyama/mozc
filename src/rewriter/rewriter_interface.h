@@ -30,7 +30,10 @@
 #ifndef MOZC_REWRITER_REWRITER_INTERFACE_H_
 #define MOZC_REWRITER_REWRITER_INTERFACE_H_
 
+#include <array>
 #include <cstddef>  // for size_t
+#include <cstdint>
+#include <optional>
 
 #include "converter/segments.h"
 #include "request/conversion_request.h"
@@ -56,6 +59,22 @@ class RewriterInterface {
     return CONVERSION;
   }
 
+  struct ResizeSegmentsRequest {
+    // Position of the segment to be resized.
+    size_t segment_index = 0;
+
+    // The new size of each segment in Unicode character (e.g. 3 for "あいう").
+    // The type and size (i.e. uint8_t and 8) comes from the implementation of
+    // UserBoundaryHistoryRewriter that stores the segment sizes in this format.
+    using SegmentSizes = std::array<uint8_t, 8>;
+    SegmentSizes segment_sizes = {0, 0, 0, 0, 0, 0, 0, 0};
+  };
+
+  virtual std::optional<ResizeSegmentsRequest> CheckResizeSegmentsRequest(
+      const ConversionRequest &request, const Segments &segments) const {
+    return std::nullopt;
+  }
+
   virtual bool Rewrite(const ConversionRequest &request,
                        Segments *segments) const = 0;
 
@@ -71,6 +90,19 @@ class RewriterInterface {
 
   // Hook(s) for all mutable operations
   virtual void Finish(const ConversionRequest &request, Segments *segments) {}
+
+  // Reverts the last Finish operation.
+  virtual void Revert(Segments *segments) {}
+
+  // Delete the user history based entry corresponding to the specified
+  // candidate.
+  // Returns true when at least one deletion operation succeeded
+  // |segment_index| is the index for all segments, not the index of
+  // conversion_segments.
+  virtual bool ClearHistoryEntry(const Segments &segments, size_t segment_index,
+                                 int candidate_index) {
+    return false;
+  }
 
   // Synchronizes internal data to local file system.  This method is called
   // when the server received SYNC_DATA command from the client.  Currently,

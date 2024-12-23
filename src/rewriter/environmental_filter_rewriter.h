@@ -56,6 +56,7 @@
 #include <string_view>
 #include <vector>
 
+#include "absl/types/span.h"
 #include "base/text_normalizer.h"
 #include "converter/segments.h"
 #include "data_manager/data_manager_interface.h"
@@ -70,7 +71,7 @@ class CharacterGroupFinder {
   ~CharacterGroupFinder() = default;
 
   // Sets target_codepoints, which represents target group.
-  void Initialize(const std::vector<std::u32string> &target_codepoints);
+  void Initialize(absl::Span<const std::u32string> target_codepoints);
   // Finds targeted character in given target codepoints. If found, returns
   // true. If not found, returns false.
   bool FindMatch(std::u32string_view target) const;
@@ -118,6 +119,7 @@ class EnvironmentalFilterRewriter : public RewriterInterface {
   CharacterGroupFinder finder_e14_0_;
   CharacterGroupFinder finder_e15_0_;
   CharacterGroupFinder finder_e15_1_;
+  CharacterGroupFinder finder_e16_0_;
 };
 }  // namespace mozc
 #endif  // MOZC_REWRITER_ENVIRONMENTAL_FILTER_REWRITER_H_

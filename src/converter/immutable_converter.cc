@@ -36,12 +36,12 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/algorithm/container.h"
-#include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/check.h"
 #include "absl/log/log.h"
@@ -297,8 +297,9 @@ std::vector<absl::string_view> GetBoundaryInfo(const Segment::Candidate &c) {
 // Here,"渡しの" will be filtered if there is a cost gap from "私の"
 class FirstInnerSegmentCandidateChecker {
  public:
-  explicit FirstInnerSegmentCandidateChecker(const Segment &target_segment)
-      : target_segment_(target_segment) {}
+  explicit FirstInnerSegmentCandidateChecker(const Segment &target_segment,
+                                             int cost_max_diff)
+      : target_segment_(target_segment), cost_max_diff_(cost_max_diff) {}
 
   bool IsGoodCandidate(const Segment::Candidate &c) {
     if (c.key.size() != target_segment_.key().size() &&
@@ -308,15 +309,7 @@ class FirstInnerSegmentCandidateChecker {
       return false;
     }
 
-    if (!Util::ContainsScriptType(c.value, Util::KANJI)) {
-      // Do not filter non-kanji candidate.
-      // It may have unusual candidate cost.
-      return true;
-    }
-
-    constexpr int kCostDiff = 3107;  // 500*log(500)
-    if (const auto &f = min_cost_for_key_.find(c.key);
-        f != min_cost_for_key_.end() && c.cost - f->second > kCostDiff) {
+    if (min_cost_.has_value() && c.cost - *min_cost_ > cost_max_diff_) {
       return false;
     }
 
@@ -329,9 +322,10 @@ class FirstInnerSegmentCandidateChecker {
 
     if (Util::ContainsScriptType(c.value, Util::KANJI)) {
       // Do not use non-kanji entry's cost. Sometimes it is too small.
-      auto [it, inserted] = min_cost_for_key_.try_emplace(c.key, c.cost);
-      if (!inserted) {
-        it->second = std::min(it->second, c.cost);
+      if (!min_cost_.has_value()) {
+        min_cost_ = c.cost;
+      } else {
+        *min_cost_ = std::min(*min_cost_, c.cost);
       }
     }
   }
@@ -345,7 +339,8 @@ class FirstInnerSegmentCandidateChecker {
   }
 
   const Segment &target_segment_;
-  absl::flat_hash_map<std::string, int> min_cost_for_key_;
+  int cost_max_diff_;
+  std::optional<int> min_cost_;
   Trie<bool> trie_;
 };
 
@@ -1333,8 +1328,8 @@ void ImmutableConverter::MakeLatticeNodesForPredictiveNodes(
     conversion_key += segment.key();
   }
   DCHECK_NE(std::string::npos, key.find(conversion_key));
-  std::vector<std::string> conversion_key_chars;
-  Util::SplitStringToUtf8Chars(conversion_key, &conversion_key_chars);
+  const std::vector<std::string> conversion_key_chars =
+      Util::SplitStringToUtf8Chars(conversion_key);
 
   // *** Current behaviors ***
   // - Starts suggestion from 6 characters, which is conservative.
@@ -2112,9 +2107,10 @@ void ImmutableConverter::InsertCandidatesForRealtime(
 void ImmutableConverter::InsertCandidatesForRealtimeWithCandidateChecker(
     const ConversionRequest &request, const Lattice &lattice,
     absl::Span<const uint16_t> group, Segments *segments) const {
+  const commands::DecoderExperimentParams params =
+      request.request().decoder_experiment_params();
   Segment *target_segment = segments->mutable_conversion_segment(0);
   absl::flat_hash_set<std::string> added;
-
   Segments tmp_segments = *segments;
   {
     // Candidates for the whole path
@@ -2122,11 +2118,15 @@ void ImmutableConverter::InsertCandidatesForRealtimeWithCandidateChecker(
     InsertCandidates(request, &tmp_segments, lattice, group, kMaxSize,
                      SINGLE_SEGMENT);
 
-    // InsertCandidates for SINGLE_SEGMENT should insert at least one candidate.
+    // At least one candidate should be added.
+    // Skip to add the similar candidates unless the char coverage is still
+    // available.
     DCHECK_GT(tmp_segments.conversion_segment(0).candidates_size(), 0);
     const auto &top_cand = tmp_segments.conversion_segment(0).candidate(0);
     const std::vector<absl::string_view> top_boundary =
         GetBoundaryInfo(top_cand);
+    int remaining_char_coverage =
+        params.realtime_conversion_single_segment_char_coverage();
     for (int i = 0; i < tmp_segments.conversion_segment(0).candidates_size();
          ++i) {
       const auto &c = tmp_segments.conversion_segment(0).candidate(i);
@@ -2134,15 +2134,16 @@ void ImmutableConverter::InsertCandidatesForRealtimeWithCandidateChecker(
       if (c.cost - top_cand.cost > kCostDiff) {
         continue;
       }
-      const std::vector<absl::string_view> boundary = GetBoundaryInfo(c);
-      if (boundary.size() > 2 && i != 0 && boundary == top_boundary) {
-        // Skip to add the similar candidates excepting the case that the
-        // top candidate has the simple structure (i.e., "のXX", etc)
+      if (i != 0 && GetBoundaryInfo(c) == top_boundary &&
+          remaining_char_coverage < 0) {
+        // Skip to add the similar candidates when there is no remaining
+        // coverage.
         continue;
       }
       Segment::Candidate *candidate = target_segment->add_candidate();
       *candidate = c;
       added.insert(c.value);
+      remaining_char_coverage -= Util::CharsLen(c.value);
     }
   }
   tmp_segments.mutable_conversion_segment(0)->clear_candidates();
@@ -2153,7 +2154,9 @@ void ImmutableConverter::InsertCandidatesForRealtimeWithCandidateChecker(
                      request.max_conversion_candidates_size() -
                          target_segment->candidates_size(),
                      FIRST_INNER_SEGMENT);
-    FirstInnerSegmentCandidateChecker checker(*target_segment);
+    FirstInnerSegmentCandidateChecker checker(
+        *target_segment,
+        params.realtime_conversion_candidate_checker_cost_max_diff());
     for (int i = 0; i < tmp_segments.conversion_segment(0).candidates_size();
          ++i) {
       Segment::Candidate *c =
@@ -2195,62 +2198,11 @@ void ImmutableConverter::InsertCandidatesForPrediction(
   // Mobile
   if (request.request()
           .decoder_experiment_params()
-          .enable_realtime_conversion_v2()) {
-    if (request.request()
-            .decoder_experiment_params()
-            .enable_realtime_conversion_candidate_checker()) {
-      InsertCandidatesForRealtimeWithCandidateChecker(request, lattice, group,
-                                                      segments);
-    } else {
-      InsertCandidatesForRealtime(request, lattice, group, segments);
-    }
-    return;
-  }
-
-  // TODO(toshiyuki): It may be better to change this value
-  // according to the key length.
-  static constexpr size_t kOnlyFirstSegmentCandidateSize = 3;
-  const size_t single_segment_candidates_size =
-      ((max_candidates_size > kOnlyFirstSegmentCandidateSize)
-           ? max_candidates_size - kOnlyFirstSegmentCandidateSize
-           : 1);
-  InsertCandidates(request, segments, lattice, group,
-                   single_segment_candidates_size, SINGLE_SEGMENT);
-
-  // Even if single_segment_candidates_size + kOnlyFirstSegmentCandidateSize
-  // is greater than max_candidates_size, we cannot skip
-  // InsertFirstSegmentToCandidates().
-  // For example:
-  //   the sum: 11
-  //   max_candidates_size: 10
-  //   current candidate size: 8
-  // In this case, the sum > |max_candidates_size|, but we should not
-  // skip calling InsertFirstSegmentToCandidates, as we want to add
-  // two candidates.
-  const size_t only_first_segment_candidates_size =
-      std::min(max_candidates_size,
-               single_segment_candidates_size + kOnlyFirstSegmentCandidateSize);
-  InsertFirstSegmentToCandidates(request, segments, lattice, group,
-                                 only_first_segment_candidates_size,
-                                 false /* allow_exact */);
-
-  const bool is_prediction =
-      request.request_type() == ConversionRequest::PREDICTION ||
-      request.request_type() == ConversionRequest::PARTIAL_PREDICTION;
-  // TODO(taku): We do not want to refer `is_prediction` here.
-  // This is a temporal workaround to fill all personal names appeared
-  // as exact partial candidates. Expand candidates as many as possible
-  //
-  // Note: This check is for just in case.
-  // For now,
-  // 1. `create_partial_candidates` can be true only for Mobile
-  //    (Request::mixed_conversion == true)
-  // 2. For mobile, the session does not issue SUGGESTION command
-  // So we do not check `is_prediction` here.
-  if (is_prediction) {
-    InsertFirstSegmentToCandidates(request, segments, lattice, group,
-                                   request.max_conversion_candidates_size(),
-                                   true /* allow exact */);
+          .enable_realtime_conversion_candidate_checker()) {
+    InsertCandidatesForRealtimeWithCandidateChecker(request, lattice, group,
+                                                    segments);
+  } else {
+    InsertCandidatesForRealtime(request, lattice, group, segments);
   }
 }
 

@@ -39,6 +39,7 @@
 #include "absl/log/check.h"
 #include "absl/log/log.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "base/japanese_util.h"
 #include "base/number_util.h"
 #include "base/text_normalizer.h"
@@ -57,33 +58,17 @@ namespace {
 
 bool IsComposerApplicable(const ConversionRequest &request,
                           const Segments *segments) {
-  if (!request.has_composer()) {
-    return false;
-  }
-
-  std::string conversion_query;
-  if (request.request_type() == ConversionRequest::PREDICTION ||
-      request.request_type() == ConversionRequest::SUGGESTION) {
-    conversion_query = request.composer().GetQueryForPrediction();
-  } else {
-    conversion_query = request.composer().GetQueryForConversion();
-    if (request.request_type() == ConversionRequest::PARTIAL_PREDICTION ||
-        request.request_type() == ConversionRequest::PARTIAL_SUGGESTION) {
-      Util::Utf8SubString(conversion_query, 0, request.composer().GetCursor(),
-                          &conversion_query);
-    }
-  }
-
   std::string segments_key;
   for (const Segment &segment : segments->conversion_segments()) {
     segments_key.append(segment.key());
   }
-  if (conversion_query != segments_key) {
-    DLOG(WARNING) << "composer seems invalid: composer_key " << conversion_query
-                  << " segments_key " << segments_key;
-    return false;
+  if (request.key() == segments_key) {
+    return true;
   }
-  return true;
+
+  DLOG(WARNING) << "composer seems invalid: composer_key " << request.key()
+                << " segments_key " << segments_key;
+  return false;
 }
 
 void NormalizeT13ns(std::vector<std::string> *t13ns) {
@@ -183,12 +168,12 @@ void ModifyT13nsForGodan(const absl::string_view key,
   (*t13ns)[transliteration::FULL_ASCII_CAPITALIZED] = full_ascii_capitalized;
 }
 
-bool IsTransliterated(const std::vector<std::string> &t13ns) {
+bool IsTransliterated(absl::Span<const std::string> t13ns) {
   if (t13ns.empty() || t13ns[0].empty()) {
     return false;
   }
 
-  const std::string &base_candidate = t13ns[0];
+  absl::string_view base_candidate = t13ns[0];
   for (size_t i = 1; i < t13ns.size(); ++i) {
     if (t13ns[i] != base_candidate) {
       return true;
@@ -356,12 +341,7 @@ bool TransliterationRewriter::AddRawNumberT13nCandidates(
     // Rewriting multiple segments will not make users happier.
     return false;
   }
-  // This process is done on composer's data.
-  // If the request doesn't have a composer, this method can do nothing.
-  if (!request.has_composer()) {
-    return false;
-  }
-  const composer::Composer &composer = request.composer();
+  const composer::ComposerData &composer = request.composer();
   Segment *segment = segments->mutable_conversion_segment(0);
   // Get the half_ascii T13n text (nearly equal Raw input).
   // Note that only one segment is in the Segments, but sometimes like
@@ -433,7 +413,7 @@ void TransliterationRewriter::InitT13nCandidate(
 }
 
 bool TransliterationRewriter::SetTransliterations(
-    const std::vector<std::string> &t13ns, const absl::string_view key,
+    absl::Span<const std::string> t13ns, const absl::string_view key,
     Segment *segment) const {
   if (t13ns.size() != transliteration::NUM_T13N_TYPES ||
       !IsTransliterated(t13ns)) {

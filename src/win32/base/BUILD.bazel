@@ -34,8 +34,8 @@ load(
     "MOZC_TAGS",
     "mozc_cc_library",
     "mozc_cc_test",
+    "mozc_cc_win32_library",
 )
-load("//bazel:stubs.bzl", "lexan")
 load(
     "//bazel/win32:build_defs.bzl",
     "features_gdi",
@@ -53,7 +53,6 @@ mozc_cc_library(
     target_compatible_with = ["@platforms//os:windows"],
     deps = [
         "//base:system_util",
-        "//client:client_interface",
         "//config:config_handler",
         "//protocol:config_cc_proto",
         "//session:key_info_util",
@@ -111,11 +110,12 @@ mozc_cc_test(
         ":keyboard",
         "//protocol:commands_cc_proto",
         "//testing:gunit_main",
+        "@com_google_absl//absl/types:span",
     ],
 )
 
 filegroup(
-    # TODO(yuryu): lexan.resource_files doesn't seem to accept cc_library.
+    # TODO(yuryu): windows.resource_files doesn't seem to accept cc_library.
     # This is a workaround for now.
     name = "display_name_resource_h_for_rc",
     srcs = ["display_name_resource.h"],
@@ -161,8 +161,12 @@ mozc_cc_library(
     hdrs = ["imm_util.h"],
     tags = MOZC_TAGS.WIN_ONLY,
     target_compatible_with = ["@platforms//os:windows"],
+    visibility = [
+        "//gui:__subpackages__",
+    ],
     deps = [
         ":input_dll",
+        ":msctf_dll",
         ":tsf_profile",
         "//base/win32:wide_char",
         "@com_google_absl//absl/log",
@@ -362,7 +366,7 @@ mozc_cc_test(
     ],
 )
 
-lexan.cc_windows_dll(
+mozc_cc_win32_library(
     name = "input_dll",
     srcs = [
         "input_dll.cc",
@@ -389,7 +393,7 @@ mozc_cc_test(
     ],
 )
 
-lexan.cc_windows_dll(
+mozc_cc_win32_library(
     name = "msctf_dll",
     srcs = [
         "msctf_dll.cc",

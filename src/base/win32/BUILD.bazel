@@ -79,6 +79,7 @@ mozc_cc_library(
         "//base:util",
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/types:span",
     ],
 )
 
@@ -174,6 +175,7 @@ mozc_cc_library(
     tags = MOZC_TAGS.WIN_ONLY,
     target_compatible_with = ["@platforms//os:windows"],
     visibility = [
+        "//gui/tool:__subpackages__",
         "//renderer/win32:__subpackages__",
         "//server:__pkg__",
         "//win32/broker:__subpackages__",

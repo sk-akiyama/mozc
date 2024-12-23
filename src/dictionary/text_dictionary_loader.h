@@ -36,6 +36,7 @@
 #include <vector>
 
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "dictionary/dictionary_token.h"
 #include "testing/friend_test.h"
 
@@ -77,7 +78,7 @@ class TextDictionaryLoader {
     tokens_.push_back(std::move(token));
   }
 
-  const std::vector<std::unique_ptr<Token>> &tokens() const { return tokens_; }
+  absl::Span<const std::unique_ptr<Token>> tokens() const { return tokens_; }
 
   // Appends the tokens owned by this instance to |res|.  Note that the appended
   // tokens are still owned by this instance and deleted on destruction of this
@@ -87,7 +88,7 @@ class TextDictionaryLoader {
  private:
   static std::vector<std::unique_ptr<Token>> LoadReadingCorrectionTokens(
       absl::string_view reading_correction_filename,
-      const std::vector<std::unique_ptr<Token>> &ref_sorted_tokens, int *limit);
+      absl::Span<const std::unique_ptr<Token>> ref_sorted_tokens, int *limit);
 
   // Encodes special information into |token| with the |label|.
   // Currently, label must be:
@@ -100,7 +101,7 @@ class TextDictionaryLoader {
 
   std::unique_ptr<Token> ParseTSVLine(absl::string_view line) const;
   std::unique_ptr<Token> ParseTSV(
-      const std::vector<absl::string_view> &columns) const;
+      absl::Span<const absl::string_view> columns) const;
 
   const uint16_t zipcode_id_;
   const uint16_t isolated_word_id_;

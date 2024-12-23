@@ -169,6 +169,7 @@ std::string CandidateAttributesToString(uint32_t attrs) {
   ADD_STR(AUTO_PARTIAL_SUGGESTION);
   ADD_STR(USER_HISTORY_PREDICTION);
   ADD_STR(NO_MODIFICATION);
+  ADD_STR(USER_SEGMENT_HISTORY_REWRITER);
 
 #undef ADD_STR
   return absl::StrJoin(v, " | ");
@@ -280,7 +281,7 @@ void PrintSegments(const Segments &segments, std::ostream *os) {
 
 bool ExecCommand(const ConverterInterface &converter, const std::string &line,
                  const commands::Request &request, config::Config *config,
-                 ConversionRequest *conversion_request, Segments *segments) {
+                 Segments *segments) {
   std::vector<std::string> fields =
       absl::StrSplit(line, absl::ByAnyChar("\t "), absl::SkipEmpty());
 
@@ -291,44 +292,60 @@ bool ExecCommand(const ConverterInterface &converter, const std::string &line,
 
   CHECK_FIELDS_LENGTH(1);
 
-  const std::string &func = fields[0];
-
   composer::Composer composer(&composer::Table::GetDefaultTable(), &request,
                               config);
-  conversion_request->set_composer(&composer);
+  commands::Context context;
+  ConversionRequest::Options options = {
+      .max_conversion_candidates_size =
+          absl::GetFlag(FLAGS_max_conversion_candidates_size),
+      .create_partial_candidates = request.auto_partial_suggestion(),
+  };
 
+  const std::string &func = fields[0];
   if (func == "startconversion" || func == "start" || func == "s") {
+    options.request_type = ConversionRequest::CONVERSION;
     CHECK_FIELDS_LENGTH(2);
     composer.SetPreeditTextForTestOnly(fields[1]);
-    return converter.StartConversion(*conversion_request, segments);
+    const ConversionRequest conversion_request = ConversionRequest(
+        composer, request, context, *config, std::move(options));
+    return converter.StartConversion(conversion_request, segments);
   } else if (func == "convertwithnodeinfo" || func == "cn") {
     CHECK_FIELDS_LENGTH(5);
     Lattice::SetDebugDisplayNode(
         NumberUtil::SimpleAtoi(fields[2]),  // begin pos
         NumberUtil::SimpleAtoi(fields[3]),  // end pos
         fields[4]);
-    const bool result = converter.StartConversionWithKey(segments, fields[1]);
+    composer::Composer composer;
+    composer.SetPreeditTextForTestOnly(fields[1]);
+    const ConversionRequest convreq =
+        ConversionRequestBuilder().SetComposer(composer).Build();
+    const bool result = converter.StartConversion(convreq, segments);
     Lattice::ResetDebugDisplayNode();
     return result;
   } else if (func == "reverseconversion" || func == "reverse" || func == "r") {
     CHECK_FIELDS_LENGTH(2);
     return converter.StartReverseConversion(segments, fields[1]);
   } else if (func == "startprediction" || func == "predict" || func == "p") {
+    options.request_type = ConversionRequest::PREDICTION;
     if (fields.size() >= 2) {
       composer.SetPreeditTextForTestOnly(fields[1]);
-      return converter.StartPrediction(*conversion_request, segments);
-    } else {
-      return converter.StartPrediction(*conversion_request, segments);
     }
+    const ConversionRequest conversion_request = ConversionRequest(
+        composer, request, context, *config, std::move(options));
+    return converter.StartPrediction(conversion_request, segments);
   } else if (func == "startsuggestion" || func == "suggest") {
+    options.request_type = ConversionRequest::SUGGESTION;
     if (fields.size() >= 2) {
       composer.SetPreeditTextForTestOnly(fields[1]);
-      return converter.StartSuggestion(*conversion_request, segments);
-    } else {
-      return converter.StartSuggestion(*conversion_request, segments);
     }
+    const ConversionRequest conversion_request = ConversionRequest(
+        composer, request, context, *config, std::move(options));
+    return converter.StartPrediction(conversion_request, segments);
   } else if (func == "finishconversion" || func == "finish") {
-    converter.FinishConversion(*conversion_request, segments);
+    options.request_type = ConversionRequest::CONVERSION;
+    const ConversionRequest conversion_request = ConversionRequest(
+        composer, request, context, *config, std::move(options));
+    converter.FinishConversion(conversion_request, segments);
     return true;
   } else if (func == "resetconversion" || func == "reset") {
     converter.ResetConversion(segments);
@@ -348,7 +365,10 @@ bool ExecCommand(const ConverterInterface &converter, const std::string &line,
         if (!(converter.CommitSegmentValue(segments, i, 0))) return false;
       }
     }
-    converter.FinishConversion(*conversion_request, segments);
+    options.request_type = ConversionRequest::CONVERSION;
+    const ConversionRequest conversion_request = ConversionRequest(
+        composer, request, context, *config, std::move(options));
+    converter.FinishConversion(conversion_request, segments);
     return true;
   } else if (func == "focussegmentvalue" || func == "focus") {
     CHECK_FIELDS_LENGTH(3);
@@ -361,19 +381,27 @@ bool ExecCommand(const ConverterInterface &converter, const std::string &line,
     singleton_vector.push_back(NumberUtil::SimpleAtoi(fields[1]));
     return converter.CommitSegments(segments, singleton_vector);
   } else if (func == "resizesegment" || func == "resize") {
+    options.request_type = ConversionRequest::CONVERSION;
+    const ConversionRequest conversion_request = ConversionRequest(
+        composer, request, context, *config, std::move(options));
     if (fields.size() == 3) {
-      return converter.ResizeSegment(segments, *conversion_request,
+      return converter.ResizeSegment(segments, conversion_request,
                                      NumberUtil::SimpleAtoi(fields[1]),
                                      NumberUtil::SimpleAtoi(fields[2]));
-    } else if (fields.size() > 3) {
+    }
+  } else if (func == "resizesegments" || func == "resizes") {
+    options.request_type = ConversionRequest::CONVERSION;
+    const ConversionRequest conversion_request = ConversionRequest(
+        composer, request, context, *config, std::move(options));
+    if (fields.size() > 3) {
       std::vector<uint8_t> new_arrays;
-      for (size_t i = 3; i < fields.size(); ++i) {
+      for (size_t i = 2; i < fields.size(); ++i) {
         new_arrays.push_back(
             static_cast<uint8_t>(NumberUtil::SimpleAtoi(fields[i])));
       }
-      return converter.ResizeSegment(
-          segments, *conversion_request, NumberUtil::SimpleAtoi(fields[1]),
-          NumberUtil::SimpleAtoi(fields[2]), new_arrays);
+      return converter.ResizeSegments(
+          segments, conversion_request, NumberUtil::SimpleAtoi(fields[1]),
+          new_arrays);
     }
   } else if (func == "disableuserhistory") {
     config->set_history_learning_level(config::Config::NO_HISTORY);
@@ -441,6 +469,24 @@ bool IsConsistentEngineNameAndType(const std::string &engine_name,
          kConsistentPairs->end();
 }
 
+void RunLoop(std::unique_ptr<Engine> engine, commands::Request &&request,
+             config::Config &&config) {
+  ConverterInterface *converter = engine->GetConverter();
+  CHECK(converter);
+
+  Segments segments;
+  std::string line;
+  while (!std::getline(std::cin, line).fail()) {
+    if (ExecCommand(*converter, line, request, &config, &segments)) {
+      if (absl::GetFlag(FLAGS_output_debug_string)) {
+        PrintSegments(segments, &std::cout);
+      }
+    } else {
+      std::cout << "ExecCommand() return false" << std::endl;
+    }
+  }
+}
+
 }  // namespace
 }  // namespace mozc
 
@@ -486,7 +532,7 @@ int main(int argc, char **argv) {
 
   mozc::config::Config config = mozc::config::ConfigHandler::DefaultConfig();
   mozc::commands::Request request;
-  std::unique_ptr<mozc::EngineInterface> engine;
+  std::unique_ptr<mozc::Engine> engine;
   if (absl::GetFlag(FLAGS_engine_type) == "desktop") {
     engine =
         mozc::Engine::CreateDesktopEngine(*std::move(data_manager)).value();
@@ -510,33 +556,11 @@ int main(int argc, char **argv) {
               << request.decoder_experiment_params();
   }
 
-  mozc::ConverterInterface *converter = engine->GetConverter();
-  CHECK(converter);
-
   if (!mozc::IsConsistentEngineNameAndType(absl::GetFlag(FLAGS_engine_name),
                                            absl::GetFlag(FLAGS_engine_type))) {
     LOG(WARNING) << "Engine name and type do not match.";
   }
 
-  mozc::Segments segments;
-  std::string line;
-
-  mozc::ConversionRequest conversion_request =
-      mozc::ConversionRequest(nullptr, &request, &config);
-  conversion_request.set_max_conversion_candidates_size(
-      absl::GetFlag(FLAGS_max_conversion_candidates_size));
-  conversion_request.set_create_partial_candidates(
-      request.auto_partial_suggestion());
-
-  while (!std::getline(std::cin, line).fail()) {
-    if (mozc::ExecCommand(*converter, line, request, &config,
-                          &conversion_request, &segments)) {
-      if (absl::GetFlag(FLAGS_output_debug_string)) {
-        mozc::PrintSegments(segments, &std::cout);
-      }
-    } else {
-      std::cout << "ExecCommand() return false" << std::endl;
-    }
-  }
+  mozc::RunLoop(std::move(engine), std::move(request), std::move(config));
   return 0;
 }

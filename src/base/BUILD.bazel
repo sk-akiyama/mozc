@@ -50,7 +50,7 @@ mozc_cc_library(
     name = "init_mozc_buildtool",
     srcs = ["init_mozc.cc"],
     hdrs = ["init_mozc.h"],
-    copts = ["-DMOZC_BUILDTOOL_BUILD"],
+    local_defines = ["MOZC_BUILDTOOL_BUILD"],
     visibility = ["//:__subpackages__"],
     deps = [
         ":log_file",
@@ -738,7 +738,9 @@ mozc_cc_library(
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
-    ],
+    ] + mozc_select(
+        windows = ["//base/win32:win_sandbox"],
+    ),
 )
 
 mozc_cc_test(
@@ -1005,6 +1007,7 @@ mozc_cc_test(
         "//testing:gunit_main",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
     ],
 )
 

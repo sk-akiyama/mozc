@@ -38,6 +38,7 @@
 #include <vector>
 
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "base/util.h"
 #include "converter/converter_interface.h"
 #include "converter/immutable_converter_interface.h"
@@ -118,8 +119,8 @@ class DictionaryPredictionAggregator : public PredictionAggregatorInterface {
       const ZeroQueryDict &dict, std::vector<ZeroQueryResult> *results);
 
   static void AppendZeroQueryToResults(
-      const std::vector<ZeroQueryResult> &candidates, uint16_t lid,
-      uint16_t rid, std::vector<Result> *results);
+      absl::Span<const ZeroQueryResult> candidates, uint16_t lid, uint16_t rid,
+      std::vector<Result> *results);
 
   PredictionTypes AggregatePredictionForZeroQuery(
       const ConversionRequest &request, const Segments &segments,
@@ -234,6 +235,9 @@ class DictionaryPredictionAggregator : public PredictionAggregatorInterface {
                                  const Segments &segments,
                                  std::vector<Result> *results) const;
 
+  bool AggregateNumberCandidates(absl::string_view input_key,
+                                 std::vector<Result> *results) const;
+
   // Note that this look up is done with raw input string rather than query
   // string from composer.  This is helpful to implement language aware input.
   void AggregateEnglishPredictionUsingRawInput(
@@ -273,6 +277,10 @@ class DictionaryPredictionAggregator : public PredictionAggregatorInterface {
       const dictionary::DictionaryInterface &dictionary,
       const ConversionRequest &request, const Segments &segments,
       int zip_code_id, int unknown_id, std::vector<Result> *results);
+
+  void MaybePopulateTypingCorrectionPenalty(const ConversionRequest &request,
+                                            const Segments &segments,
+                                            std::vector<Result> *results) const;
 
   // Test peer to access private methods
   friend class DictionaryPredictionAggregatorTestPeer;

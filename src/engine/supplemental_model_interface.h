@@ -33,6 +33,7 @@
 #include <optional>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "composer/query.h"
@@ -66,28 +67,24 @@ class SupplementalModelInterface {
   }
 
   // Performs spelling correction for composition (pre-edit) Hiragana sequence.
-  // Both `query` and `context` must be Hiragana input sequence.
-  // `request` is passed to determine the keyboard layout.
   // Returns empty result when no correction is required.
   // Returns std::nullopt when the composition spellchecker is not
   // enabled/available.
   virtual std::optional<std::vector<composer::TypeCorrectedQuery>>
   CorrectComposition(const ConversionRequest &request,
-                     absl::string_view context) const {
+                     const Segments &segments) const {
     return std::nullopt;
   }
 
-  // Returns true if the final typing correct result is not confident.
-  virtual bool ShouldRevertTypingCorrection(
-      const commands::Request &request, const Segments &segments,
-      absl::Span<const prediction::Result> literal_results,
-      absl::Span<const prediction::Result> typing_corrected_results) const {
-    return false;
-  }
+  // Populates the typing correction penalty and attribute to `results`.
+  virtual void PopulateTypeCorrectedQuery(
+      const ConversionRequest &request, const Segments &segments,
+      absl::Span<prediction::Result> results) const {}
 
   // Performs general post correction on `segments`.
   virtual void PostCorrect(const ConversionRequest &request,
-                           Segments *segments) const {}
+                           const Segments &segments,
+                           std::vector<prediction::Result> &results) const {}
 
   // Performs rescoring for `results` given the context `segments`.
   virtual void RescoreResults(const ConversionRequest &request,

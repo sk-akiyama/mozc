@@ -38,8 +38,7 @@ namespace mozc {
 namespace request_util {
 
 inline bool IsHandwriting(const ConversionRequest &conversion_request) {
-  return conversion_request.has_composer() &&
-         !conversion_request.composer().GetHandwritingCompositions().empty();
+  return !conversion_request.composer().GetHandwritingCompositions().empty();
 }
 
 inline bool IsAutoPartialSuggestionEnabled(
@@ -61,9 +60,7 @@ inline bool IsFindabilityOrientedOrderEnabled(
 
 inline bool ShouldFilterNoisyNumberCandidate(
     const ConversionRequest &conversion_request) {
-  return conversion_request.request()
-      .decoder_experiment_params()
-      .filter_noisy_number_candidate();
+  return conversion_request.create_partial_candidates();
 }
 
 }  // namespace request_util

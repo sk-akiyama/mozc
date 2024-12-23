@@ -31,7 +31,6 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <string>
 
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/string_view.h"
@@ -40,7 +39,6 @@
 #include "converter/segments.h"
 #include "protocol/commands.pb.h"
 #include "request/conversion_request.h"
-#include "request/request_util.h"
 #include "rewriter/rewriter_interface.h"
 #include "rewriter/rewriter_util.h"
 #include "transliteration/transliteration.h"
@@ -54,12 +52,10 @@ namespace {
 // keys) and katakana T13n candidates (Katakana variants for other keys) will
 // be promoted.
 constexpr size_t kLatinT13nOffset = 3;
-constexpr size_t kKatakanaT13nOffset = 5;
 
 bool IsLatinInputMode(const ConversionRequest &request) {
-  return (request.has_composer() &&
-          (request.composer().GetInputMode() == transliteration::HALF_ASCII ||
-           request.composer().GetInputMode() == transliteration::FULL_ASCII));
+  return request.composer().GetInputMode() == transliteration::HALF_ASCII ||
+         request.composer().GetInputMode() == transliteration::FULL_ASCII;
 }
 
 bool MaybeInsertLatinT13n(Segment *segment) {
@@ -101,54 +97,73 @@ bool MaybeInsertLatinT13n(Segment *segment) {
   return pos != insert_pos;
 }
 
-bool MaybePromoteKatakana(Segment *segment) {
-  if (segment->meta_candidates_size() <= transliteration::FULL_KATAKANA) {
-    return false;
-  }
-
-  const Segment::Candidate &katakana_candidate =
-      segment->meta_candidate(transliteration::FULL_KATAKANA);
-  const std::string &katakana_value = katakana_candidate.value;
-  if (!Util::IsScriptType(katakana_value, Util::KATAKANA)) {
-    return false;
-  }
-
-  for (size_t i = 0;
-       i < std::min(segment->candidates_size(), kKatakanaT13nOffset); ++i) {
-    if (segment->candidate(i).value == katakana_value) {
-      // No need to promote or insert.
-      return false;
-    }
-  }
-
-  Segment::Candidate insert_candidate = katakana_candidate;
-  size_t index = kKatakanaT13nOffset;
-  for (; index < segment->candidates_size(); ++index) {
-    if (segment->candidate(index).value == katakana_value) {
+// Inserts or promote Katakana candidate at `insert_pos`.
+// promotes Katakana candidate if `segment` already contains Katakana.
+// Katakana candidate is searched from `start_offset`.
+// When no Katakana is found, `katakana_candidate` is inserted.
+void InsertKatakana(int start_offset, int insert_pos,
+                    const Segment::Candidate &katakana_candidate,
+                    Segment *segment) {
+  int katakana_index = -1;
+  for (int i = start_offset; i < segment->candidates_size(); ++i) {
+    if (segment->candidate(i).value == katakana_candidate.value) {
+      katakana_index = i;
       break;
     }
   }
 
-  const size_t insert_pos =
-      RewriterUtil::CalculateInsertPosition(*segment, kKatakanaT13nOffset);
-  if (index < segment->candidates_size()) {
-    const Segment::Candidate insert_candidate = segment->candidate(index);
-    *(segment->insert_candidate(insert_pos)) = insert_candidate;
+  if (katakana_index >= 0) {
+    segment->move_candidate(katakana_index, insert_pos);
   } else {
     *(segment->insert_candidate(insert_pos)) = katakana_candidate;
   }
+}
+
+bool MaybePromoteKatakanaWithStaticOffset(
+    const commands::DecoderExperimentParams &params,
+    const Segment::Candidate &katakana_candidate, Segment *segment) {
+  if (params.katakana_promotion_offset() < 0) {
+    return false;
+  }
+
+  const int katakana_t13n_offset = params.katakana_promotion_offset();
+
+  // Katakana candidate already appears at lower than katakana_t13n_offset.
+  for (size_t i = 0;
+       i < std::min<int>(segment->candidates_size(), katakana_t13n_offset);
+       ++i) {
+    // No need to promote or insert.
+    if (segment->candidate(i).value == katakana_candidate.value) {
+      return false;
+    }
+  }
+
+  const size_t insert_pos =
+      RewriterUtil::CalculateInsertPosition(*segment, katakana_t13n_offset);
+
+  InsertKatakana(katakana_t13n_offset, insert_pos, katakana_candidate, segment);
 
   return true;
+}
+
+bool MaybePromoteKatakana(const ConversionRequest &request, Segment *segment) {
+  if (segment->meta_candidates_size() <= transliteration::FULL_KATAKANA) {
+    return false;
+  }
+
+  const auto &params = request.request().decoder_experiment_params();
+  const Segment::Candidate &katakana_candidate =
+      segment->meta_candidate(transliteration::FULL_KATAKANA);
+
+  return MaybePromoteKatakanaWithStaticOffset(params, katakana_candidate,
+                                              segment);
 }
 
 bool MaybePromoteT13n(const ConversionRequest &request, Segment *segment) {
   if (IsLatinInputMode(request) || Util::IsAscii(segment->key())) {
     return MaybeInsertLatinT13n(segment);
   }
-  if (request_util::IsFindabilityOrientedOrderEnabled(request)) {
-    return false;
-  }
-  return MaybePromoteKatakana(segment);
+  return MaybePromoteKatakana(request, segment);
 }
 
 }  // namespace

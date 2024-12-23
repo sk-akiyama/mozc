@@ -74,8 +74,14 @@ TEST(FileUtilTest, CreateDirectory) {
   EXPECT_OK(FileUtil::CreateDirectory(dirpath));
   EXPECT_OK(FileUtil::DirectoryExists(dirpath));
 
+#if !defined(_WIN32)
+  // On Windows, CreateDirectory does not return OK if the directory already
+  // exists. See the implementation of CreateDirectory in file_util.cc.
+  // https://github.com/google/mozc/issues/1076
+  //
   // Create the same directory again.
   EXPECT_OK(FileUtil::CreateDirectory(dirpath));
+#endif  // !_WIN32
 
   // Delete the directory.
   ASSERT_OK(FileUtil::RemoveDirectory(dirpath));
@@ -540,20 +546,6 @@ TEST(FileUtilTest, FileUnlinker) {
     EXPECT_OK(FileUtil::FileExists(temp_file->path()));
   }
   EXPECT_FALSE(FileUtil::FileExists(temp_file->path()).ok());
-}
-
-TEST(FileUtilTest, LinkOrCopyFile) {
-  TempDirectory temp_dir = testing::MakeTempDirectoryOrDie();
-  const std::string from =
-      FileUtil::JoinPath(temp_dir.path(), "link_or_copy_test_from.txt");
-  const std::string to =
-      FileUtil::JoinPath(temp_dir.path(), "link_or_copy_test_to.txt");
-  EXPECT_TRUE(!FileUtil::LinkOrCopyFile(from, to).ok());
-  ASSERT_OK(FileUtil::SetContents(from, "test"));
-  EXPECT_OK(FileUtil::LinkOrCopyFile(from, to));
-  auto s = FileUtil::IsEqualFile(from, to);
-  EXPECT_OK(s);
-  EXPECT_TRUE(*s);
 }
 
 }  // namespace

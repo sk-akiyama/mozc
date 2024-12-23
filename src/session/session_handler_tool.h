@@ -32,6 +32,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -39,8 +40,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "engine/engine_interface.h"
-#include "engine/user_data_manager_interface.h"
-#include "protocol/candidates.pb.h"
+#include "protocol/candidate_window.pb.h"
 #include "protocol/commands.pb.h"
 #include "protocol/config.pb.h"
 #include "session/session_handler_interface.h"
@@ -60,6 +60,7 @@ class SessionHandlerTool {
   bool DeleteSession();
   bool CleanUp();
   bool ClearUserPrediction();
+  bool ClearUserHistory();
   bool SendKey(const commands::KeyEvent &key, commands::Output *output) {
     return SendKeyWithOption(key, commands::Input::default_instance(), output);
   }
@@ -81,6 +82,11 @@ class SessionHandlerTool {
   bool Reload();
   bool ResetContext();
   bool UndoOrRewind(commands::Output *output);
+  // Try to delete the candidate from the history.
+  // The target candidate is specified with the |id|. If |id| is not specified,
+  // the current focused candidate will be specified.
+  bool DeleteCandidateFromHistory(std::optional<int> id,
+                                  commands::Output *output);
   bool SwitchInputMode(commands::CompositionMode composition_mode);
   bool SetRequest(const commands::Request &request, commands::Output *output);
   bool SetConfig(const config::Config &config, commands::Output *output);
@@ -94,8 +100,8 @@ class SessionHandlerTool {
                            bool allow_callback);
 
   uint64_t id_;  // Session ID
+  EngineInterface *engine_ = nullptr;
   std::unique_ptr<SessionObserverInterface> usage_observer_;
-  UserDataManagerInterface *data_manager_;
   std::unique_ptr<SessionHandlerInterface> handler_;
   std::string callback_text_;
 };

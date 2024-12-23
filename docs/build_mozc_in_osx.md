@@ -22,7 +22,7 @@ python3 build_tools/update_deps.py
 # CMake is also required to build Qt.
 python3 build_tools/build_qt.py --release --confirm_license
 
-MOZC_QT_PATH=${PWD}/third_party/qt bazel build package --config oss_macos -c opt
+MOZC_QT_PATH=${PWD}/third_party/qt bazel build package --config oss_macos --config release_build
 open bazel-bin/mac/Mozc.pkg
 ```
 
@@ -50,6 +50,7 @@ Building on Mac requires the following software.
   * Xcode 13 (macOS 13 SDK) or later
   * ⚠️Xcode Command Line Tools aren't sufficient.
 * [Bazel](https://docs.bazel.build/versions/master/install-os-x.html) for Bazel build
+  * ⚠️ Bazel 8.x is not yet supported ([#1118](https://github.com/google/mozc/issues/1118))
 * Python 3.9 or later with the following pip module.
   * `requests`
 * CMake 3.18.4 or later (to build Qt6)
@@ -87,7 +88,7 @@ python build_tools/update_deps.py
 In this step, additional build dependencies will be downloaded.
 
   * [Ninja 1.11.0](https://github.com/ninja-build/ninja/releases/download/v1.11.0/ninja-mac.zip)
-  * [Qt 6.7.1](https://download.qt.io/archive/qt/6.7/6.7.1/submodules/qtbase-everywhere-src-6.7.1.tar.xz)
+  * [Qt 6.8.0](https://download.qt.io/archive/qt/6.8/6.8.0/submodules/qtbase-everywhere-src-6.8.0.tar.xz)
   * [git submodules](../.gitmodules)
 
 You can specify `--noqt` option if you would like to use your own Qt binaries.
@@ -133,7 +134,7 @@ brew install cmake
 ### Build installer
 
 ```
-MOZC_QT_PATH=${PWD}/third_party/qt bazel build package --config oss_macos -c opt
+MOZC_QT_PATH=${PWD}/third_party/qt bazel build package --config oss_macos --config release_build
 open bazel-bin/mac/Mozc.pkg
 ```
 
@@ -142,14 +143,14 @@ open bazel-bin/mac/Mozc.pkg
 To build an Intel64 macOS binary regardless of the host CPU architecture.
 ```
 python3 build_tools/build_qt.py --release --debug --confirm_license --macos_cpus=x64_64
-MOZC_QT_PATH=${PWD}/third_party/qt bazel build package --config oss_macos -c opt --macos_cpus=x64_64
+MOZC_QT_PATH=${PWD}/third_party/qt bazel build package --config oss_macos --config release_build --macos_cpus=x64_64
 open bazel-bin/mac/Mozc.pkg
 ```
 
 To build a Universal macOS Binary both x86_64 and arm64.
 ```
 python3 build_tools/build_qt.py --release --debug --confirm_license --macos_cpus=x86_64,arm64
-MOZC_QT_PATH=${PWD}/third_party/qt bazel build package --config oss_macos -c opt --macos_cpus=x86_64,arm64
+MOZC_QT_PATH=${PWD}/third_party/qt bazel build package --config oss_macos --config release_build --macos_cpus=x86_64,arm64
 open bazel-bin/mac/Mozc.pkg
 ```
 

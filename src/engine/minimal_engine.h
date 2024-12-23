@@ -37,12 +37,8 @@
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "converter/converter_interface.h"
-#include "data_manager/data_manager_interface.h"
-#include "dictionary/suppression_dictionary.h"
 #include "engine/engine_interface.h"
 #include "engine/modules.h"
-#include "engine/user_data_manager_interface.h"
-#include "prediction/predictor_interface.h"
 
 namespace mozc {
 
@@ -55,27 +51,18 @@ class MinimalEngine : public EngineInterface {
   MinimalEngine &operator=(const MinimalEngine &) = delete;
 
   ConverterInterface *GetConverter() const override;
-  absl::string_view GetPredictorName() const override;
-  dictionary::SuppressionDictionary *GetSuppressionDictionary() override;
-  bool Reload() override { return true; }
-  bool Sync() override { return true; }
-  bool Wait() override { return true; }
-  bool ReloadAndWait() override { return true; }
+  absl::string_view GetPredictorName() const override {
+    return "MinimalPredictor";
+  }
+  absl::string_view GetDataVersion() const override { return "0.0.0"; }
+
   absl::Status ReloadModules(std::unique_ptr<engine::Modules> modules,
-                             bool is_mobile) override {
+                             bool is_mobile) {
     return absl::OkStatus();
   }
-  UserDataManagerInterface *GetUserDataManager() override;
-  absl::string_view GetDataVersion() const override { return "0.0.0"; }
-  const DataManagerInterface *GetDataManager() const override;
-  std::vector<std::string> GetPosList() const override;
 
  private:
   std::unique_ptr<ConverterInterface> converter_;
-  std::unique_ptr<prediction::PredictorInterface> predictor_;
-  std::unique_ptr<dictionary::SuppressionDictionary> suppression_dictionary_;
-  std::unique_ptr<UserDataManagerInterface> user_data_manager_;
-  std::unique_ptr<const DataManagerInterface> data_manager_;
 };
 
 }  // namespace mozc

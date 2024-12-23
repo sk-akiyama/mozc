@@ -76,6 +76,9 @@ class ImmutableConverter : public ImmutableConverterInterface {
   FRIEND_TEST(NBestGeneratorTest, InnerSegmentBoundary);
   FRIEND_TEST(NBestGeneratorTest, MultiSegmentConnectionTest);
   FRIEND_TEST(NBestGeneratorTest, SingleSegmentConnectionTest);
+  FRIEND_TEST(NBestGeneratorTest, NoPartialCandidateBetweenAlphabets);
+  FRIEND_TEST(NBestGeneratorTest, NoAlphabetsConnection2Nodes);
+  FRIEND_TEST(NBestGeneratorTest, NoAlphabetsConnection3Nodes);
   friend class NBestGeneratorTest;
 
   enum InsertCandidatesType {

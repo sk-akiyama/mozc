@@ -53,6 +53,11 @@
 #include "base/vlog.h"
 #include "protocol/config.pb.h"
 
+#ifdef _WIN32
+#include "base/win32/wide_char.h"
+#include "base/win32/win_sandbox.h"
+#endif  // _WIN32
+
 namespace mozc {
 namespace config {
 namespace {
@@ -133,14 +138,14 @@ const Config &ConfigHandlerImpl::DefaultConfig() const {
 void ConfigHandlerImpl::SetConfigInternal(Config config) {
   config_ = std::move(config);
 
-#ifdef MOZC_NO_LOGGING
+#ifdef NDEBUG
   // Delete the optional field from the config.
   config_.clear_verbose_level();
   // Fall back if the default value is not the expected value.
   if (config_.verbose_level() != 0) {
     config_.set_verbose_level(0);
   }
-#endif  // MOZC_NO_LOGGING
+#endif  // NDEBUG
 
   mozc::internal::SetConfigVLogLevel(config_.verbose_level());
 
@@ -179,6 +184,9 @@ void ConfigHandlerImpl::SetConfig(const Config &config) {
 
   MOZC_VLOG(1) << "Setting new config: " << filename_;
   ConfigFileStream::AtomicUpdate(filename_, output_config.SerializeAsString());
+#ifdef _WIN32
+  ConfigFileStream::FixupFilePermission(filename_);
+#endif  // _WIN32
 
 #ifdef DEBUG
   std::string debug_content = absl::StrCat(
@@ -308,6 +316,13 @@ Config::SessionKeymap ConfigHandler::GetDefaultKeyMap() {
     return config::Config::MSIME;
   }
 }
+
+#ifdef _WIN32
+// static
+void ConfigHandler::FixupFilePermission() {
+  ConfigFileStream::FixupFilePermission(GetConfigFileName());
+}
+#endif  // _WIN32
 
 }  // namespace config
 }  // namespace mozc

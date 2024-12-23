@@ -108,9 +108,7 @@ mozc_cc_library(
         "japanese.cc",
     ],
     hdrs = ["japanese.h"],
-    visibility = [
-        "//:__subpackages__",
-    ],
+    visibility = ["//:__subpackages__"],
     deps = [
         "//base/strings/internal:double_array",
         "//base/strings/internal:japanese_rules",
@@ -138,6 +136,7 @@ mozc_cc_library(
     deps = [
         "//base/strings/internal:utf8_internal",
         "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/strings",
     ],

@@ -29,6 +29,7 @@
 
 #include "converter/nbest_generator.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -37,14 +38,17 @@
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "converter/immutable_converter.h"
 #include "converter/lattice.h"
 #include "converter/node.h"
 #include "converter/segments.h"
+#include "converter/segments_matchers.h"
 #include "data_manager/testing/mock_data_manager.h"
 #include "dictionary/user_dictionary_stub.h"
 #include "engine/modules.h"
 #include "request/conversion_request.h"
+#include "testing/gmock.h"
 #include "testing/gunit.h"
 
 namespace mozc {
@@ -77,6 +81,10 @@ class MockDataAndImmutableConverter {
   std::unique_ptr<ImmutableConverter> immutable_converter_;
 };
 
+ConversionRequest ConvReq(ConversionRequest::RequestType request_type) {
+  return ConversionRequestBuilder().SetRequestType(request_type).Build();
+}
+
 }  // namespace
 
 class NBestGeneratorTest : public ::testing::Test {
@@ -84,7 +92,7 @@ class NBestGeneratorTest : public ::testing::Test {
   const Node *GetEndNode(const ConversionRequest &request,
                          const ImmutableConverter &converter,
                          const Segments &segments, const Node &begin_node,
-                         const std::vector<uint16_t> &group,
+                         absl::Span<const uint16_t> group,
                          bool is_single_segment) {
     const Node *end_node = nullptr;
     for (Node *node = begin_node.next; node->next != nullptr;
@@ -116,8 +124,7 @@ TEST_F(NBestGeneratorTest, MultiSegmentConnectionTest) {
 
   Lattice lattice;
   lattice.SetKey("しんこうする");
-  ConversionRequest request;
-  request.set_request_type(ConversionRequest::CONVERSION);
+  const ConversionRequest request = ConvReq(ConversionRequest::CONVERSION);
   converter->MakeLattice(request, &segments, &lattice);
 
   std::vector<uint16_t> group;
@@ -173,8 +180,7 @@ TEST_F(NBestGeneratorTest, SingleSegmentConnectionTest) {
 
   Lattice lattice;
   lattice.SetKey(kText);
-  ConversionRequest request;
-  request.set_request_type(ConversionRequest::CONVERSION);
+  const ConversionRequest request = ConvReq(ConversionRequest::CONVERSION);
   converter->MakeLattice(request, &segments, &lattice);
 
   std::vector<uint16_t> group;
@@ -225,8 +231,7 @@ TEST_F(NBestGeneratorTest, InnerSegmentBoundary) {
 
   Lattice lattice;
   lattice.SetKey(kInput);
-  ConversionRequest request;
-  request.set_request_type(ConversionRequest::PREDICTION);
+  const ConversionRequest request = ConvReq(ConversionRequest::PREDICTION);
   converter->MakeLattice(request, &segments, &lattice);
 
   std::vector<uint16_t> group;
@@ -285,6 +290,135 @@ TEST_F(NBestGeneratorTest, InnerSegmentBoundary) {
   EXPECT_EQ(values[2], "行きたい");
   EXPECT_EQ(content_keys[2], "いきたい");
   EXPECT_EQ(content_values[2], "行きたい");
+}
+
+TEST_F(NBestGeneratorTest, NoPartialCandidateBetweenAlphabets) {
+  auto data_and_converter = std::make_unique<MockDataAndImmutableConverter>();
+  ImmutableConverter *converter = data_and_converter->GetConverter();
+
+  Segments segments;
+  const std::string kInput = "AAA";
+  {
+    Segment *segment = segments.add_segment();
+    segment->set_segment_type(Segment::FREE);
+    segment->set_key(kInput);
+  }
+
+  Lattice lattice;
+  lattice.SetKey(kInput);
+  const ConversionRequest request = ConvReq(ConversionRequest::PREDICTION);
+  converter->MakeLattice(request, &segments, &lattice);
+
+  std::vector<uint16_t> group;
+  converter->MakeGroup(segments, &group);
+  converter->Viterbi(segments, &lattice);
+
+  std::unique_ptr<NBestGenerator> nbest_generator =
+      data_and_converter->CreateNBestGenerator(&lattice);
+
+  constexpr bool kSingleSegment = true;  // For real time conversion
+  const Node *begin_node = lattice.bos_nodes();
+  const Node *end_node = GetEndNode(request, *converter, segments, *begin_node,
+                                    group, kSingleSegment);
+
+  // Since the test dictionary contains "A", partial candidates "A" and "AA" can
+  // be generated but they should be suppressed because they are split between
+  // alphabets.
+  const NBestGenerator::Options options = {
+      .boundary_mode = NBestGenerator::ONLY_EDGE,
+      .candidate_mode = NBestGenerator::BUILD_FROM_ONLY_FIRST_INNER_SEGMENT |
+                        NBestGenerator::FILL_INNER_SEGMENT_INFO,
+  };
+  nbest_generator->Reset(begin_node, end_node, options);
+  Segment result_segment;
+  nbest_generator->SetCandidates(request, "", 10, &result_segment);
+  EXPECT_THAT(result_segment, HasSingleCandidate(::testing::Field(
+                                  "value", &Segment::Candidate::value, "AAA")));
+}
+
+TEST_F(NBestGeneratorTest, NoAlphabetsConnection2Nodes) {
+  auto data_and_converter = std::make_unique<MockDataAndImmutableConverter>();
+  ImmutableConverter *converter = data_and_converter->GetConverter();
+
+  Segments segments;
+  std::string kText = "eupho";
+  {
+    Segment *segment = segments.add_segment();
+    segment->set_segment_type(Segment::FREE);
+    segment->set_key(kText);
+  }
+
+  Lattice lattice;
+  lattice.SetKey(kText);
+  const ConversionRequest request = ConvReq(ConversionRequest::CONVERSION);
+  converter->MakeLattice(request, &segments, &lattice);
+
+  std::vector<uint16_t> group;
+  converter->MakeGroup(segments, &group);
+  converter->Viterbi(segments, &lattice);
+
+  std::unique_ptr<NBestGenerator> nbest_generator =
+      data_and_converter->CreateNBestGenerator(&lattice);
+
+  constexpr bool kSingleSegment = true;  // For real time conversion
+  const Node *begin_node = lattice.bos_nodes();
+  const Node *end_node = GetEndNode(request, *converter, segments, *begin_node,
+                                    group, kSingleSegment);
+  nbest_generator->Reset(
+      begin_node, end_node,
+      {NBestGenerator::ONLY_EDGE, NBestGenerator::FILL_INNER_SEGMENT_INFO});
+  Segment result_segment;
+  nbest_generator->SetCandidates(request, "", 10, &result_segment);
+  // The test dictionary contains key value pairs (eu, EU) and (pho, pho), but
+  // "EUpho" should not be generated as it is a concatenation of two alphabet
+  // words. The only expected candidate is (eupho, eupho).
+  EXPECT_THAT(result_segment,
+              HasSingleCandidate(::testing::Field(
+                  "value", &Segment::Candidate::value, "eupho")));
+}
+
+TEST_F(NBestGeneratorTest, NoAlphabetsConnection3Nodes) {
+  auto data_and_converter = std::make_unique<MockDataAndImmutableConverter>();
+  ImmutableConverter *converter = data_and_converter->GetConverter();
+
+  Segments segments;
+  std::string kText = "euphoとうきょう";
+  {
+    Segment *segment = segments.add_segment();
+    segment->set_segment_type(Segment::FREE);
+    segment->set_key(kText);
+  }
+
+  Lattice lattice;
+  lattice.SetKey(kText);
+  const ConversionRequest request = ConvReq(ConversionRequest::CONVERSION);
+  converter->MakeLattice(request, &segments, &lattice);
+
+  std::vector<uint16_t> group;
+  converter->MakeGroup(segments, &group);
+  converter->Viterbi(segments, &lattice);
+
+  std::unique_ptr<NBestGenerator> nbest_generator =
+      data_and_converter->CreateNBestGenerator(&lattice);
+
+  constexpr bool kSingleSegment = true;  // For real time conversion
+  const Node *begin_node = lattice.bos_nodes();
+  const Node *end_node = GetEndNode(request, *converter, segments, *begin_node,
+                                    group, kSingleSegment);
+  nbest_generator->Reset(
+      begin_node, end_node,
+      {NBestGenerator::ONLY_EDGE, NBestGenerator::FILL_INNER_SEGMENT_INFO});
+  Segment result_segment;
+  nbest_generator->SetCandidates(request, "", 10, &result_segment);
+  // Tne top candidate consists of two elements, "eupho" and "東京". Such
+  // connection from English word to a normal word is possible.
+  ASSERT_GE(result_segment.candidates_size(), 1);
+  EXPECT_EQ(result_segment.candidate(0).value, "eupho東京");
+  EXPECT_EQ(result_segment.candidate(0).inner_segment_boundary.size(), 2);
+  // However, we should not concatenate "EU", "pho", and "東京".
+  for (size_t i = 0; i < result_segment.candidates_size(); ++i) {
+    EXPECT_NE(result_segment.candidate(i).value, "EUpho東京");
+  }
 }
 
 }  // namespace mozc

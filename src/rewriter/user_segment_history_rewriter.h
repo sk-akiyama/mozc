@@ -37,6 +37,7 @@
 #include <vector>
 
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "converter/segments.h"
 #include "dictionary/pos_group.h"
 #include "dictionary/pos_matcher.h"
@@ -58,6 +59,9 @@ class UserSegmentHistoryRewriter : public RewriterInterface {
   bool Sync() override;
   bool Reload() override;
   void Clear() override;
+  void Revert(Segments *segments) override;
+  bool ClearHistoryEntry(const Segments &segments, size_t segment_index,
+                         int candidate_index) override;
 
  private:
   friend class UserSegmentHistoryRewriterTestPeer;
@@ -88,25 +92,41 @@ class UserSegmentHistoryRewriter : public RewriterInterface {
   static Segments MakeLearningSegmentsFromInnerSegments(
       const Segments &segments);
 
+  // Returns id for RevertEntry
+  static uint16_t revert_id();
+
   bool IsAvailable(const ConversionRequest &request,
                    const Segments &segments) const;
   Score GetScore(const ConversionRequest &request, const Segments &segments,
-                 size_t segment_index, int candidate_index) const;
+                 size_t segment_index, int candidate_index,
+                 bool is_proper_noun_segment) const;
   bool Replaceable(const ConversionRequest &request,
-                   const Segment::Candidate &lhs,
-                   const Segment::Candidate &rhs) const;
-  void RememberFirstCandidate(const ConversionRequest &request,
-                              const Segments &segments, size_t segment_index);
-  void RememberNumberPreference(const Segment &segment);
+                   const Segment::Candidate &best_candidate,
+                   const Segment::Candidate &target_candidate,
+                   bool is_proper_noun_segment) const;
+  // |revert_entries| will be stored to Segments and used to revert last
+  // Finish() operation in Revert().
+  void RememberFirstCandidate(
+      const ConversionRequest &request, const Segments &segments,
+      size_t segment_index, std::vector<Segments::RevertEntry> &revert_entries);
+  void RememberNumberPreference(
+      const Segment &segment,
+      std::vector<Segments::RevertEntry> &revert_entries);
   bool RewriteNumber(Segment *segment) const;
   bool ShouldRewrite(const Segment &segment, size_t *max_candidates_size) const;
   void InsertTriggerKey(const Segment &segment);
   bool IsPunctuation(const Segment &seg,
                      const Segment::Candidate &candidate) const;
-  bool SortCandidates(const std::vector<ScoreCandidate> &sorted_scores,
+  bool SortCandidates(absl::Span<const ScoreCandidate> sorted_scores,
                       Segment *segment) const;
   Score Fetch(absl::string_view key, uint32_t weight) const;
-  void Insert(absl::string_view key, bool force);
+  void Insert(absl::string_view key, bool force,
+              std::vector<Segments::RevertEntry> &revert_entries);
+  void MaybeInsertRevertEntry(
+      absl::string_view key,
+      std::vector<Segments::RevertEntry> &revert_entries);
+  // Returns true if deletion succeeded.
+  bool DeleteEntry(absl::string_view key);
 
   std::unique_ptr<storage::LruStorage> storage_;
   const dictionary::PosMatcher *pos_matcher_;

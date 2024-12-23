@@ -39,6 +39,7 @@
 #include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/str_replace.h"
 #include "base/file_stream.h"
@@ -136,7 +137,6 @@ const char *kScenarioFileList[] = {
     DATA_DIR "handwriting.txt",
     DATA_DIR "insert_characters.txt",
     DATA_DIR "mobile_partial_variant_candidates.txt",
-    DATA_DIR "mobile_revert_user_history_learning.txt",
     DATA_DIR "on_off_cancel.txt",
     DATA_DIR "partial_suggestion.txt",
     DATA_DIR "pending_character.txt",
@@ -229,7 +229,8 @@ const char *kFailedScenarioFileList[] = {
 };
 INSTANTIATE_TEST_SUITE_P(DISABLED_SessionHandlerScenarioParameters,
                          SessionHandlerScenarioTest,
-                         ::testing::ValuesIn(kFailedScenarioFileList));
+                         ::testing::ValuesIn(kFailedScenarioFileList),
+                         SessionHandlerScenarioTest::GetTestName);
 
 void ParseLine(SessionHandlerInterpreter &handler, const std::string &line) {
   std::vector<std::string> args = handler.Parse(line);
@@ -249,6 +250,7 @@ TEST_P(SessionHandlerScenarioTest, TestImplBase) {
   const absl::StatusOr<std::string> scenario_path =
       mozc::testing::GetSourceFile({MOZC_DICT_DIR_COMPONENTS, GetParam()});
   ASSERT_TRUE(scenario_path.ok()) << scenario_path.status();
+  handler_->ClearAll();
   LOG(INFO) << "Testing " << FileUtil::Basename(*scenario_path);
   InputFileStream input_stream(*scenario_path);
 
@@ -264,15 +266,29 @@ TEST_P(SessionHandlerScenarioTest, TestImplBase) {
 
 class SessionHandlerScenarioTestForRequest
     : public SessionHandlerScenarioTestBase,
-      public WithParamInterface<std::tuple<const char *, commands::Request>> {};
+      public WithParamInterface<std::tuple<const char *, commands::Request>> {
+ public:
+  static std::string GetTestName(
+      const ::testing::TestParamInfo<ParamType> &info) {
+    return absl::StrCat(
+        info.index, "_",
+        absl::StrReplaceAll(
+            FileUtil::Basename(
+                FileUtil::NormalizeDirectorySeparator(std::get<0>(info.param))),
+            {{".", "_"}}));
+  }
+};
 
 const char *kScenariosForExperimentParams[] = {
 #define DATA_DIR "test/session/scenario/"
-    DATA_DIR "mobile_zero_query.txt",
-    DATA_DIR "mobile_preedit.txt",
     DATA_DIR "mobile_apply_user_segment_history_rewriter.txt",
+    DATA_DIR "mobile_delete_history.txt",
+    DATA_DIR "mobile_preedit.txt",
     DATA_DIR "mobile_qwerty_transliteration_scenario.txt",
+    DATA_DIR "mobile_revert_user_history_learning.txt",
+    DATA_DIR "mobile_switch_input_mode.txt",
     DATA_DIR "mobile_t13n_candidates.txt",
+    DATA_DIR "mobile_zero_query.txt",
 #undef DATA_DIR
 };
 
@@ -292,14 +308,6 @@ INSTANTIATE_TEST_SUITE_P(
             []() {
               auto request = GetMobileRequest();
               request.mutable_decoder_experiment_params()
-                  ->set_enable_realtime_conversion_v2(true);
-              return request;
-            }(),
-            []() {
-              auto request = GetMobileRequest();
-              request.mutable_decoder_experiment_params()
-                  ->set_enable_realtime_conversion_v2(true);
-              request.mutable_decoder_experiment_params()
                   ->set_enable_realtime_conversion_candidate_checker(true);
               return request;
             }(),
@@ -312,28 +320,10 @@ INSTANTIATE_TEST_SUITE_P(
             []() {
               auto request = GetMobileRequest();
               request.mutable_decoder_experiment_params()
-                  ->set_apply_user_segment_history_rewriter_for_prediction(
-                      true);
+                  ->set_user_segment_history_rewriter_replace_proper_noun(true);
               return request;
-            }(),
-            []() {
-              auto request = GetMobileRequest();
-              request.mutable_decoder_experiment_params()
-                  ->set_filter_noisy_number_candidate(true);
-              return request;
-            }(),
-            []() {
-              auto request = GetMobileRequest();
-              request.mutable_decoder_experiment_params()
-                  ->set_user_segment_history_rewriter_new_replaceable(true);
-              return request;
-            }(),
-            []() {
-              auto request = GetMobileRequest();
-              request.mutable_decoder_experiment_params()
-                  ->set_user_segment_history_rewriter_use_inner_segments(true);
-              return request;
-            }())));
+            }())),
+    SessionHandlerScenarioTestForRequest::GetTestName);
 
 TEST_P(SessionHandlerScenarioTestForRequest, TestImplBase) {
   // Open the scenario file.
@@ -341,7 +331,7 @@ TEST_P(SessionHandlerScenarioTestForRequest, TestImplBase) {
       mozc::testing::GetSourceFile(
           {MOZC_DICT_DIR_COMPONENTS, std::get<0>(GetParam())});
   ASSERT_TRUE(scenario_path.ok()) << scenario_path.status();
-
+  handler_->ClearAll();
   handler_->SetRequest(std::get<1>(GetParam()));
 
   LOG(INFO) << "Testing " << FileUtil::Basename(*scenario_path);

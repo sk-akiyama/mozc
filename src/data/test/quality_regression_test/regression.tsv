@@ -7,7 +7,7 @@ regression	はなしています	話しています	Conversion Expected
 regression	でましたら	出ましたら	Conversion Expected
 regression	あきのことである	秋のことである	Conversion Expected
 regression	むしろふろでて	むしろ風呂出て	Conversion Expected
-regression	おだい	お題	Conversion Expected
+regression	おだい	お題	Conversion Expected 2
 regression	あおいそらに	青い空に	Conversion Expected
 regression	なんどか	何度か	Conversion Expected
 regression	ごたんとうしゃ	ご担当者	Conversion Expected
@@ -33,3 +33,8 @@ regression	すき	隙	Conversion Expected 12
 regression	おおすにいく	大須に行く	Conversion Expected
 regression	たいじんかんけい	対人関係	Conversion Expected
 regression	たいじんすきる	対人スキル	Conversion Expected
+regression	ねおちつうわ	寝落ち通話	Conversion Expected
+regression	おきてねがおみてた	起きて寝顔見てた	Conversion Expected
+regression	ほかのようじもできた	他の用事もできた	Conversion Expected
+regression	きょうきゅうりょうび！	今日給料日！	Conversion Expected
+regression	みたことないとりいる	見たことない鳥いる	Conversion Expected

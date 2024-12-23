@@ -62,7 +62,7 @@ void RendererBaseWindow::InitWindow() {
   [window_ makeKeyAndOrderFront:nil];
   [window_ setFloatingPanel:YES];
   [window_ setWorksWhenModal:YES];
-  // ksk 背景色?
+  // ksk 背景色?　
   [window_ setBackgroundColor:NSColor.blackColor];
   [window_ setReleasedWhenClosed:NO];
   [window_ setLevel:window_level_];
